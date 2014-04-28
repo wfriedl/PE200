@@ -1,9 +1,9 @@
 Perkin Elmer 200 Pump Protocol
 
-Python script implementing a serial protocol for a PerkinElmer Series 200 liquid
-handeling pump.
+Python script implementing a serial protocol for a Perkin Elmer Series 200 liquid
+handling pump.
 
-This driver was reverse engineered.
+This driver was reverse engineered for a project many years ago.
 
 Dependencies:
     - Pyserial
