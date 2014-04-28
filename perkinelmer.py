@@ -32,31 +32,31 @@ class MethodError(LCPumpError):
 
 
 states = {
-        0: "SHTDN",
-        1: "",
-        2: "EQUIL",
-        3: "READY",
-        4: "RUN01",
-        5: "RUN02",
-        6: "RUN03",
-        7: "RUN04",
-        8: "RUN05",
-        9: "RUN06",
-        10: "RUN07",
-        11: "RUN08",
-        12: "RUN09",
-        13: "RUN10",
-        14: "RUN11",
-        15: "RUN12",
-        16: "RUN13",
-        17: "RUN14",
-        18: "RUN15",
-        19: "RUN16",
-        20: "RUN17",
-        21: "RUN18",
-        22: "RUN19",
-        24: "HLD",
-        }
+    0: "SHTDN",
+    1: "",
+    2: "EQUIL",
+    3: "READY",
+    4: "RUN01",
+    5: "RUN02",
+    6: "RUN03",
+    7: "RUN04",
+    8: "RUN05",
+    9: "RUN06",
+    10: "RUN07",
+    11: "RUN08",
+    12: "RUN09",
+    13: "RUN10",
+    14: "RUN11",
+    15: "RUN12",
+    16: "RUN13",
+    17: "RUN14",
+    18: "RUN15",
+    19: "RUN16",
+    20: "RUN17",
+    21: "RUN18",
+    22: "RUN19",
+    24: "HLD",
+    }
 
 
 def find_port():
@@ -111,7 +111,7 @@ class LC200Q(object):
         except (serial.SerialException, OSError):
             pass
 
-    def __init__(self, ser=None, min=0, max=300, rdy=999):
+    def __init__(self, ser=None, min_pressure=0, max_pressure=300, rdy=999):
         if ser is None:
             ser = scan_devs()
         self.ser = ser
@@ -149,42 +149,50 @@ class LC200Q(object):
         if len(steps) > 10:
             raise MethodError('Please, less than 10 steps in a method.')
         ret = ''
-        cmd=self.cmd
-        cmd_list = steps + ['A,0.0,0.01,0.0,0.0,0.0,100.0,0' for i in xrange(10 - len(steps))]
-        cmd_list += ['B,%.1d,%.1d,%.1d' %(self.minPressure,self.maxPressure,self.rdy)]
-        ## C - Setup Stored Events
-        #cmd('C',',time,trigger,type[G,E]')
-        ret+=cmd('P')	## P - Seize control
+        cmd = self.cmd
+        cmd_list = steps
+        cmd_list += ['A,0.0,0.01,0.0,0.0,0.0,100.0,0'] * (10 - len(steps))
+        cmd_list += ['B,%.1d,%.1d,%.1d' % (
+            self.minPressure,
+            self.maxPressure,
+            self.rdy)]
+        # C - Setup Stored Events
+        # cmd('C',',time,trigger,type[G,E]')
+        ret += cmd('P')	 # P - Seize control
         try:
-            ret += '\n'.join( [cmd(i[0],i[1:]) for i in cmd_list ] )
-        except (BadCmd,BadParam),e: 
-            print 'Error sending method. Feedback: \n',ret
-            print 'Retrying...\n',e
+            ret += '\n'.join([cmd(i[0], i[1:]) for i in cmd_list])
+        except (BadCmd, BadParam) as e:
+            print 'Error sending method. Feedback: \n', ret
+            print 'Retrying...\n', e
             self.reset()
             if retry:
-                self._method(steps,events,False)
+                self._method(steps, events, False)
             else:
                 raise
-        ret+=cmd('t')
-        ret+=cmd('l')
-        ret+=cmd('H')
+        ret += cmd('t')
+        ret += cmd('l')
+        ret += cmd('H')
         return ret
 
     def cmd(self, cmd, data='', eol='\n', delay=.01, debug=False):
         if debug:
-            print "sending: %s%s" %(cmd, data)
+            print "sending: %s%s" % (cmd, data)
         self.ser.write(cmd + data + eol)
         self.lastCmd = cmd + data + eol
         time.sleep(delay)
         tmp = self.ser.readline().strip()
         tmp = tmp if tmp != "" else self.ser.readline().strip()
-        if tmp=='9':
+        if tmp == '9':
             self._flush()
-            raise BadCmd,"Command= "+ cmd + data + eol +"err: Invalid Command for current state."
-        elif tmp=='3' and cmd not in ('a','c'):
+            msg = "err: Invalid Command for current state\n"
+            msg += "Command= %s%s%s"
+            raise BadCmd(msg % (cmd, data, eol))
+        elif tmp == '3' and cmd not in ('a', 'c'):
             self._flush()
-            raise BadParam,"Command= %s%s%s \nerr: Invalid Parameter" %(cmd, data, eol)
-        return '%s: %s\n'%(cmd, tmp)
+            msg = "err: Invalid Parameter\n"
+            msg += "Command= %s%s%s"
+            raise BadCmd(msg % (cmd, data, eol))
+        return '%s: %s\n' % (cmd, tmp)
 
     def pressure(self):
         """ Retrieves current working pressure from pump. """
@@ -197,13 +205,26 @@ class LC200Q(object):
         return int(ret)
 
     def status(self, status_type=None):
-        """ [0:?,1:state,2:total time, 3:step time, 4:flow, 5:%A, 6:%B, 7:%C, 8:%D, 9:pressure, 10:?]"""
+        """
+        Pump Status
+            0:?
+            1:state
+            2:total time
+            3:step time
+            4:flow
+            5:%A
+            6:%B
+            7:%C
+            8:%D
+            9:pressure
+            10:?
+        """
         s = self.cmd('e').rstrip().split(',')
         if status_type is None:
             return s
         return s[status_type]
 
-    def reset(self,seize=False):
+    def reset(self, seize=False):
         self.ser.write('\n\n\n')
         self.ser.flushInput()
         try:
@@ -211,32 +232,44 @@ class LC200Q(object):
             if seize:
                 self.cmd('P')
             self.cmd('H')
-        except (BadCmd,BadParam):
-            print "We're having some serious errors with your hardware please reset it and try again."
+        except (BadCmd, BadParam):
+            msg = "We're having serious errors with the pump please"
+            msg += " reset it and try again."
+            print(msg)
             raise
 
     def _flush(self):
         print self.ser.read(self.ser.inWaiting()),
 
-    def start(self):	#starts pumping current method
+    def start(self):
+        """ Starts executing current method """
         if self.state() is 0:
             self.cmd('S')
+
     def inject(self):
         """ Advances from step 0 to 1 (state: 2/3 to 4) """
         self.cmd('j')
-    def stop(self):	
+
+    def stop(self):
         """ Stops Pumping immediately """
         self.cmd('s')
 
-    def seize(self):	#seize external control
+    def seize(self):
+        """
+            Seize external control
+        """
         self.cmd('P')
-    def release(self):	#release external control
+
+    def release(self):
+        """
+            Release external control
+        """
         self.cmd('r')
 
     def next(self):
         self.advance()
 
-    def advance(self):	
+    def advance(self):
         """ advances sequentially from step 1 to 19 (state 4-22) """
         self.cmd('K')
 
@@ -249,39 +282,41 @@ class LC200Q(object):
 
     def restart(self):
         """ Halt the method
-            Safe Method restart.  
+            Safe Method restart.
         """
         self.cmd('H')
-    def quit(self):		#resets current method to step 0; time 0
-        """ Quit a method 
-            This only works from run states (i.e. > 0). 
+
+    def quit(self):
+        """ Quit a method
+            This only works from run states (i.e. > 0).
+            Resets current method to step 0; time 0
         """
         self.cmd('Q')
 
     def info(self):
-        """ Get general info about the pump: version. 
+        """ Get general info about the pump: version.
             @return a,9991,200,9992,LC200 Pump: Version 1.08
         """
         self.cmd('I')
 
     def hold(self):
         """ Pauses Run HLD01
-            Pauses *time* and gradient for current method.  Does NOT stop flow. 
+            Pauses *time* and gradient for current method.  Does NOT stop flow.
             Fails when in: SHTDN, EQUIL, READY
         """
         self.cmd('k')
 
+    def _step(self, t=1, flow=0, A=0, B=0, C=0, D=0, curve=0):
+        if sum((A, B, C, D)) != 100:
+            D = 100-sum((A, B, C))
+        return 'A,%.2f,%.2f,%.1f,%.1f,%.1f,%.1f,%d' % (
+            t, flow, A, B, C, D, 10 * curve)
 
-    def _step(self,t=1,flow=0,A=0,B=0,C=0,D=0,curve=0):
-        if sum((A,B,C,D))!=100:
-            D=100-sum((A,B,C))
-        #return 'A,%s,%s,%s,%s,%s,%s,%.1f'%(t,flow,A,B,C,D,curve)
-        return 'A,%.2f,%.2f,%.1f,%.1f,%.1f,%.1f,%d'%(t,flow,A,B,C,D,10*curve) 
 
 def scan_devs():
-    devs = [i for i in find_port() if i is not None and LC200Q.test(i) ]
+    devs = [i for i in find_port() if i is not None and LC200Q.test(i)]
     print devs
-    dev=LC200Q.test(devs[0])
+    dev = LC200Q.test(devs[0])
     if dev:
         return dev
 
